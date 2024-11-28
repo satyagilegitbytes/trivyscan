@@ -1,0 +1,54 @@
+name: Scan Docker Images
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  scan-images:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Checkout the Helm chart repository
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Extract Docker image names from the Helm chart
+    - name: Extract Docker Images from Helm Chart
+      id: extract-images
+      run: |
+        helm template ./helm-chart-directory \
+          | grep "image:" \
+          | awk '{print $2}' \
+          | sort -u > images.txt
+
+    # Display the extracted images
+    - name: Display extracted images
+      run: |
+        echo "Extracted Docker Images:"
+        cat images.txt
+
+    # Scan each image using Trivy
+    - name: Run Trivy Scan
+      id: trivy-scan
+      run: |
+        mkdir -p trivy-reports
+        while read image; do
+          echo "Scanning $image"
+          trivy image --format json --output trivy-reports/$(echo $image | sed 's|/|_|g').json $image
+        done < images.txt
+
+    # Convert JSON reports to Excel
+    - name: Convert JSON to Excel
+      run: |
+        pip install pandas openpyxl
+        python scripts/json_to_excel.py
+
+    # Upload Excel file as an artifact
+    - name: Upload Excel Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: vulnerability-report
+        path: report.xlsx
