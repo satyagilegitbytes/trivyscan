@@ -11,18 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Checkout the repository
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Install Helm
     - name: Install Helm
       run: |
         curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
         chmod 700 get_helm.sh
         ./get_helm.sh
 
-    # Extract Docker image names from the Helm chart
     - name: Extract Docker Images from Helm Chart
       id: extract-images
       run: |
@@ -31,23 +28,25 @@ jobs:
           | awk '{print $2}' \
           | sort -u > images.txt
 
-    # Display the extracted images
-    - name: Display extracted images
+    - name: Debug Image List
       run: |
-        echo "Extracted Docker Images:"
+        echo "Images extracted:"
         cat images.txt
 
-    # Run Trivy scan on each image
     - name: Run Trivy Scan
       id: trivy-scan
       run: |
         mkdir -p trivy-reports
         while read image; do
           echo "Scanning $image"
-          trivy image --format json --output trivy-reports/$(echo $image | sed 's|/|_|g').json $image
+          trivy image --format json --output trivy-reports/$(echo $image | sed 's|/|_|g').json $image || echo "Failed to scan $image"
         done < images.txt
 
-    # Upload Trivy reports as artifacts
+    - name: List Generated Reports
+      run: |
+        echo "Listing reports in trivy-reports/"
+        ls -l trivy-reports/
+
     - name: Upload Trivy Reports
       uses: actions/upload-artifact@v3
       with:
