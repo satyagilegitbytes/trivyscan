@@ -31,6 +31,9 @@ jobs:
 
         echo "Extracted Docker images:"
         cat images.txt
+        if [ ! -s images.txt ]; then
+          echo "Error: No images found!" && exit 1
+        fi
 
     - name: Install Trivy
       run: |
