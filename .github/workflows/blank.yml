@@ -11,9 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Checkout the Helm chart repository
+    # Checkout the repository
     - name: Checkout code
       uses: actions/checkout@v3
+
+    # Install Helm
+    - name: Install Helm
+      run: |
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        chmod 700 get_helm.sh
+        ./get_helm.sh
 
     # Extract Docker image names from the Helm chart
     - name: Extract Docker Images from Helm Chart
@@ -30,7 +37,7 @@ jobs:
         echo "Extracted Docker Images:"
         cat images.txt
 
-    # Scan each image using Trivy
+    # Run Trivy scan on each image
     - name: Run Trivy Scan
       id: trivy-scan
       run: |
@@ -40,15 +47,9 @@ jobs:
           trivy image --format json --output trivy-reports/$(echo $image | sed 's|/|_|g').json $image
         done < images.txt
 
-    # Convert JSON reports to Excel
-    - name: Convert JSON to Excel
-      run: |
-        pip install pandas openpyxl
-        python scripts/json_to_excel.py
-
-    # Upload Excel file as an artifact
-    - name: Upload Excel Report
+    # Upload Trivy reports as artifacts
+    - name: Upload Trivy Reports
       uses: actions/upload-artifact@v3
       with:
-        name: vulnerability-report
-        path: report.xlsx
+        name: trivy-reports
+        path: trivy-reports/
