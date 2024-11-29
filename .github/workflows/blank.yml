@@ -1,58 +1,72 @@
-name: Scan Docker Images
+name: Helm Image Vulnerability Scan
 
-on:
+on: 
   push:
     branches:
       - main
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
-jobs:
-  scan-images:
+jobs: 
+  vulnerability-scan:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    # 1. Checkout the repository
+    - name: Checkout Repository
+      uses: actions/checkout@v2
 
-    - name: Install Helm
-      run: |
-        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-        chmod 700 get_helm.sh
-        ./get_helm.sh
+    # 2. Set up Helm
+    - name: Set up Helm
+      uses: azure/setup-helm@v1
 
-    - name: Extract Docker Images from Helm Chart
-      id: extract-images
-      run: |
-        echo "Running helm template"
-        helm template ./helm-chart-directory \
-          | grep "image:" \
-          | awk '{print $2}' \
-          | sort -u > images.txt
-
-        echo "Extracted Docker images:"
-        cat images.txt
-
+    # 3. Install Trivy
     - name: Install Trivy
       run: |
-        curl -sSfL https://github.com/aquasecurity/trivy/releases/download/v0.34.0/trivy_0.34.0_Linux-64bit.deb -o trivy.deb
-        sudo dpkg -i trivy.deb
+        sudo apt-get update
+        sudo apt-get install -y wget
+        wget https://github.com/aquasecurity/trivy/releases/download/v0.35.0/trivy_0.35.0_Linux-64bit.deb
+        sudo dpkg -i trivy_0.35.0_Linux-64bit.deb
 
-    - name: Run Trivy Scan
-      id: trivy-scan
-      run: |
-        mkdir -p trivy-reports
-        while read image; do
-          echo "Scanning $image"
-          trivy image --format json --output trivy-reports/$(echo $image | sed 's|/|_|g').json $image || echo "Failed to scan $image"
-        done < images.txt
-
-    - name: List Generated Reports
-      run: |
-        echo "Listing reports in trivy-reports/"
-        ls -l trivy-reports/
-
-    - name: Upload Trivy Reports
-      uses: actions/upload-artifact@v3
+    # 4. Cache Trivy DB
+    - name: Cache Trivy DB
+      uses: actions/cache@v2
       with:
-        name: trivy-reports
-        path: trivy-reports/
+        path: ~/.cache/trivy
+        key: trivy-db-${{ runner.os }}-${{ hashFiles('**/*.yaml', '**/*.yml') }}
+        restore-keys: |
+          trivy-db-${{ runner.os }}-
+
+    # 5. List files for debugging
+    - name: List repository files
+      run: ls -R
+
+    # 6. Extract the image repository and tag
+    - name: Extract image from values.yaml
+      id: extract_image
+      run: |
+        IMAGE_REPO=$(grep -oP 'repository:\s*\K\S+' charts/uptime-kuma/values.yaml || echo "not_found")
+        IMAGE_TAG=$(grep -oP 'tag:\s*\K\S+' charts/uptime-kuma/values.yaml || echo "latest")
+        if [[ "$IMAGE_REPO" == "not_found" ]]; then
+          echo "Error: IMAGE_REPO not found in values.yaml"
+          exit 1
+        fi
+        echo "IMAGE=${IMAGE_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+        echo "Extracted Image: ${IMAGE_REPO}:${IMAGE_TAG}"
+
+    # 7. Debug extracted image
+    - name: Debug extracted image values
+      run: |
+        echo "IMAGE_REPO: ${{ env.IMAGE_REPO }}"
+        echo "IMAGE_TAG: ${{ env.IMAGE_TAG }}"
+
+    # 8. Scan image with Trivy
+    - name: Scan image with Trivy
+      run: |
+        echo "Scanning image ${{ env.IMAGE }} for vulnerabilities..."
+        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress ${{ env.IMAGE }} || echo "Vulnerabilities found, but workflow will continue"
+
+    # 9. Optionally: Display Trivy scan results
+    - name: Display Trivy Scan Results
+      run: |
+        echo "Trivy scan completed for image ${{ env.IMAGE }}."
